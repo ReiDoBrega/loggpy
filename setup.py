@@ -5,7 +5,7 @@ with open("README.md", "r", encoding="utf-8") as fh:
 
 setup(
     name="loggpy",
-    version="0.0.9",
+    version="0.1.0",
     author="ReiDoBrega",
     author_email="pedro94782079@gmail.com",
     description="A powerful Python logging library with custom levels and colored output support",

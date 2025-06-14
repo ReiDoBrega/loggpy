@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "loggpy"
-version = "0.0.9"
+version = "0.1.0"
 description = "A powerful Python logging library with custom levels and colored output support"
 authors = ["ReiDoBrega <pedro94782079@gmail.com>"]
 license = "MIT"

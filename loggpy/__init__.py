@@ -1,7 +1,7 @@
-# Custom log levels for Python's logging module.
+# Custom log levels for Python's logging module
 #
 # Modder: ReiDoBrega
-# Last Change: 11/02/2025
+# Last Change: 02/03/2025
 
 """
 Custom log levels for Python's :mod:`logging` module.
@@ -10,7 +10,7 @@ import sys
 import logging
 import coloredlogs
 from coloredlogs import DEFAULT_LEVEL_STYLES, DEFAULT_FIELD_STYLES
-from typing import NoReturn, Optional, List, Dict, Any
+from typing import NoReturn, Optional, List, Dict, Any, Union
 
 # Define custom log levels
 NOTICE = 25
@@ -31,31 +31,63 @@ for level, name in [
     setattr(logging, name, level)
 
 
+class LogFormat:
+    MESSAGE = " {message}"
+    ASCTIME = "{asctime} : {message}"
+    DEFAULT = "{asctime} [{levelname[0]}] {name} : {message}"
+    DETAILED = "{asctime} [{levelname}] {name} ({filename}:{lineno}) : {message}"
+    SIMPLE = "[{levelname}] {message}"
+    JSON = '{{"time": "{asctime}", "level": "{levelname}", "logger": "{name}", "message": "{message}"}}'
+
 class Logger(logging.Logger):
     """
-    Custom logger class supporting additional logging levels.
+    Custom logger class supporting additional logging levels and pickling.
 
     Adds support for `notice()`, `spam()`, `success()`, `verbose()`,
-    `logkey()`, and `exit()` methods.
+    `logkey()`, and `exit()` methods. Can be used with serialization libraries.
     """
     LOG_FORMAT = "{asctime} [{levelname[0]}] {name} : {message}"
     LOG_DATE_FORMAT = '%Y-%m-%d %I:%M:%S %p'
     LOG_STYLE = "{"
     BLACKLIST: List[str] = []
+    
+    # Cache of logger instances
+    _logger_instances = {}
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, name, level=logging.NOTSET):
         """
         Initialize a Logger object.
 
-        :param args: Arguments passed to superclass (logging.Logger).
-        :param kwargs: Keyword arguments passed to superclass (logging.Logger).
+        :param name: The name of the logger.
+        :param level: The logging level.
         """
-        super().__init__(*args, **kwargs)
+        # Check if we already have a logger with this name
+        if name in self._logger_instances:
+            # Return existing logger's internal state
+            existing = self._logger_instances[name]
+            self.__dict__ = existing.__dict__.copy()
+            return
+            
+        # Create a new logger
+        super().__init__(name, level)
         self.parent = logging.getLogger()
+        self._logger_instances[name] = self
+    
+    def __reduce__(self):
+        return (self.__class__, (self.name,))
+    
+    def __getstate__(self):
+        return {'name': self.name, 'level': self.level}
+    
+    def __setstate__(self, state):
+        # Use the constructor to get a reference to an existing
+        # or create a new logger with the same name
+        self.__init__(state['name'], state['level'])
 
     @classmethod
     def mount(cls,
               level: Optional[int] = logging.INFO,
+              logformat: Optional[LogFormat] = LogFormat.DEFAULT,
               HandlerFilename: Optional[str] = "",
               blacklist: Optional[List[str]] = None,
               field_styles: Optional[Dict[str, Any]] = DEFAULT_FIELD_STYLES,
@@ -71,12 +103,14 @@ class Logger(logging.Logger):
         """
         if blacklist is None:
             blacklist = []
+            
+        cls.BLACKLIST = blacklist
 
         handlers = [logging.FileHandler(HandlerFilename, encoding='utf-8')] if HandlerFilename else [logging.StreamHandler()]
 
         logging.basicConfig(
             level=logging.DEBUG,
-            format=cls.LOG_FORMAT,
+            format=logformat,
             datefmt=cls.LOG_DATE_FORMAT,
             style=cls.LOG_STYLE,
             handlers=handlers
@@ -87,13 +121,16 @@ class Logger(logging.Logger):
 
         coloredlogs.install(
             level=level,
-            fmt=cls.LOG_FORMAT,
+            fmt=logformat,
             datefmt=cls.LOG_DATE_FORMAT,
             handlers=[logging.StreamHandler()],
             style=cls.LOG_STYLE,
             field_styles=field_styles,
             level_styles=level_styles
         )
+        
+        # Set Logger as the default class for new loggers
+        logging.setLoggerClass(cls)
 
     def log(self, level: int, msg: object, *args: object, **kwargs) -> None:
         """
@@ -111,19 +148,20 @@ class Logger(logging.Logger):
             level = logging.DEBUG
 
         if self.name.startswith("urllib3"):
-            if msg.startswith("Incremented Retry"):
-                level = logging.WARNING
-            elif level == logging.DEBUG:
-                level = VERBOSE
+            if isinstance(msg, str):
+                if msg.startswith("Incremented Retry"):
+                    level = logging.WARNING
+                elif level == logging.DEBUG:
+                    level = VERBOSE
 
-            if msg == '%s://%s:%s "%s %s %s" %s %s':
-                scheme, host, port, method, url, protocol, status, reason = args
-                if (scheme == "http" and port == 80) or (scheme == "https" and port == 443):
-                    msg = "%s %s://%s%s %s %s %s"
-                    args = (method, scheme, host, url, protocol, status, reason)
-                else:
-                    msg = "%s %s://%s:%s%s %s %s %s"
-                    args = (method, scheme, host, port, url, protocol, status, reason)
+                if msg == '%s://%s:%s "%s %s %s" %s %s':
+                    scheme, host, port, method, url, protocol, status, reason = args
+                    if (scheme == "http" and port == 80) or (scheme == "https" and port == 443):
+                        msg = "%s %s://%s%s %s %s %s"
+                        args = (method, scheme, host, url, protocol, status, reason)
+                    else:
+                        msg = "%s %s://%s:%s%s %s %s %s"
+                        args = (method, scheme, host, port, url, protocol, status, reason)
 
         super().log(level, msg, *args, **kwargs)
 
@@ -165,7 +203,7 @@ class Logger(logging.Logger):
 
 
 __all__ = [
-    'Logger', 'install', 'logging'
+    'Logger', 'logging'
 ]
 
-__version__ = '0.0.9'
+__version__ = '0.1.0'
